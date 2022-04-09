@@ -5,61 +5,73 @@
 #include <BLEUtils.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
-int scanTime = 5; //In seconds
-BLEScan* pBLEScan;
+#define CAN_BUS_ID 1
+int scanTime = 5; // In seconds
+BLEScan *pBLEScan;
 String stringBuffers;
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-     if(advertisedDevice.haveName() && 
-        strcmp(advertisedDevice.getName().c_str(),"UT9") == 0 && 
-        stringBuffers.indexOf(String(advertisedDevice.getAddress().toString().c_str())) == -1
-     ){
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
+{
+  void onResult(BLEAdvertisedDevice advertisedDevice)
+  {
+    if (advertisedDevice.haveName() &&
+        strcmp(advertisedDevice.getName().c_str(), "toollo-tag") == 0 &&
+        stringBuffers.indexOf(String(advertisedDevice.getAddress().toString().c_str())) == -1)
+    {
       //  Serial.printf("%s,mac_address:%s\n", advertisedDevice.toString().c_str(),advertisedDevice.getAddress().toString().c_str());
-       stringBuffers += String(advertisedDevice.getAddress().toString().c_str())+String(',');
-     }
+      stringBuffers += String(advertisedDevice.getAddress().toString().c_str()) + String(',');
     }
+  }
 };
 
-void macAddressStringToByteArray(String macAddress,uint8_t result[6]){
-  for (int i = 0 ; i < 6 ; i++) {
-    unsigned long tmpByte = strtoul(macAddress.substring(3*i,3*i+2).c_str(),nullptr,16);
+void macAddressStringToByteArray(String macAddress, uint8_t result[6])
+{
+  for (int i = 0; i < 6; i++)
+  {
+    unsigned long tmpByte = strtoul(macAddress.substring(3 * i, 3 * i + 2).c_str(), nullptr, 16);
     result[i] = tmpByte;
   }
 }
 
-void canBusSendMessage(uint8_t data[8],uint8_t length){
+void canBusSendMessage(uint8_t data[8], uint8_t length)
+{
   can_message_t message;
-  
+
   message.identifier = 0;
   message.flags = CAN_MSG_FLAG_NONE;
-  message.data_length_code = length; 
-  for (int i = 0 ; i < length ; i++) {
-     message.data[i] = data[i];
+  message.data_length_code = length;
+  for (int i = 0; i < length; i++)
+  {
+    message.data[i] = data[i];
   }
-  if (can_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK) {
+  if (can_transmit(&message, pdMS_TO_TICKS(1000)) == ESP_OK)
+  {
     Serial.println("Message queued for transmission");
-  } else {
+  }
+  else
+  {
     Serial.println("Failed to queue message for transmission");
   }
 }
 
-void sendAllMacAddressViaCanBus(){
+void sendAllMacAddressViaCanBus()
+{
   String data = stringBuffers;
   int maxIndex = data.length() - 1;
-  int index=0;
+  int index = 0;
   int next_index;
   String data_word;
   Serial.println("mac addresses:");
-  do{
-      next_index=data.indexOf(',',index);
-      data_word=data.substring(index, next_index);
-      Serial.print("->");
-      Serial.println(data_word);
-      uint8_t bytes[6];
-      macAddressStringToByteArray(data_word,bytes);
-      canBusSendMessage(bytes,6);
-      index=next_index+1;
-    }while((next_index!=-1)&&(next_index<maxIndex));
+  do
+  {
+    next_index = data.indexOf(',', index);
+    data_word = data.substring(index, next_index);
+    Serial.print("->");
+    Serial.println(data_word);
+    uint8_t bytes[6];
+    macAddressStringToByteArray(data_word, bytes);
+    canBusSendMessage(bytes, 6);
+    index = next_index + 1;
+  } while ((next_index != -1) && (next_index < maxIndex));
 }
 
 void setup()
@@ -88,29 +100,34 @@ void setup()
     return;
   }
   BLEDevice::init("");
-  pBLEScan = BLEDevice::getScan(); //create new scan
+  pBLEScan = BLEDevice::getScan(); // create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setActiveScan(true); //active scan uses more power, but get results faster
+  pBLEScan->setActiveScan(true); // active scan uses more power, but get results faster
   pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);  // less or equal setInterval value
+  pBLEScan->setWindow(99); // less or equal setInterval value
 }
 
 void loop()
 {
+  BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
+  pBLEScan->clearResults();
+  delay(2000);
   can_message_t message;
   if (can_receive(&message, pdMS_TO_TICKS(10000)) == ESP_OK)
   {
     Serial.println("Start SCAN");
-    if(message.identifier == 1){
+    if (message.identifier == CAN_BUS_ID)
+    {
       stringBuffers = "";
       BLEScanResults foundDevices = pBLEScan->start(scanTime, false);
-      pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
+      pBLEScan->clearResults(); // delete results fromBLEScan buffer to release memory
       Serial.println(stringBuffers);
-      if(stringBuffers.length()){
+      if (stringBuffers.length())
+      {
         sendAllMacAddressViaCanBus();
       }
-      uint8_t data[] = {102,105,110,105,115,104,101,100};
-      canBusSendMessage(data,8);
+      uint8_t data[] = {102, 105, 110, 105, 115, 104, 101, 100};
+      canBusSendMessage(data, 8);
       Serial.println("finished");
     }
   }
